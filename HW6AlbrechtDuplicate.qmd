@@ -1,0 +1,243 @@
+---
+title: "Alexander Albrecht"
+author: "Data Science 2"
+editor: visual
+format:
+  html:
+    embed-resources: true
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r setup}
+library(tidyverse)
+library(tidytext)
+library(schrute)
+```
+
+# The Office
+
+Let's continue to work with *The Office* text from the [schrute](https://cran.r-project.org/web/packages/schrute/index.html) package.
+
+# Sentiment Analysis
+
+### Over Time
+
+Calculate the sentiment score (positive - negative) for each episode, and plot this variable over time.
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(schrute)
+
+# Data reminder
+theoffice |> glimpse()
+
+#Tokenize the text and join with sentiment lexicon
+episode_sentiment <- theoffice |>
+  mutate(episode_id = paste(season, episode, sep = "_")) |>
+  unnest_tokens(word, text) |>
+  inner_join(sentiments, by = "word") |>
+  group_by(season, episode, episode_id) |>
+  summarize(
+    pos_score = sum(sentiment == "positive"),
+    neg_score = sum(sentiment == "negative"),
+    sent_score = pos_score - neg_score,
+    sent_ratio = pos_score / neg_score,
+    .groups = "drop"
+  )
+
+# Sequential order for episodes
+episode_sentiment <- episode_sentiment |>
+  arrange(season, episode) |>
+  mutate(episode_num = row_number())
+
+# Step 3: Plot sentiment over time
+ggplot(episode_sentiment, aes(x = episode_num, y = sent_score)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(
+    x = "Episode (chronological)",
+    y = "Sentiment Score (Positive - Negative)",
+    title = "Sentiment Over Time in The Office",
+    subtitle = "Note: only 1 episode with a negative sentiment score: S3E20"
+  )
+```
+
+### By Rating
+
+Create a scatterplot of the `imdb_rating` versus the sentiment score (positive - negative), where the case is again an episode. Decide whether a linear model is a good fit to this relationship (optional, if you have had modeling classes, what model looks best?). Comment on what you find.
+
+```{r}
+
+# The theoffice data has imdb_rating - we need to join it with our sentiment
+# First get unique episode info with ratings
+episode_info <- theoffice |>
+  distinct(season, episode, imdb_rating)
+
+# Join with sentiment scores
+sentiment_rating <- episode_sentiment |>
+  left_join(episode_info, by = c("season", "episode"))
+
+# Create scatterplot
+ggplot(sentiment_rating, aes(x = sent_score, y = imdb_rating)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(
+    x = "Sentiment Score (Positive - Negative)",
+    y = "IMDB Rating",
+    title = "IMDB Rating vs. Sentiment Score",
+    subtitle = "SE and Loess turned on but not necessarily statistically accurate, I just enjoy seeing them."
+  )
+
+
+
+# Check linear model fit
+model <- lm(imdb_rating ~ sent_score, data = sentiment_rating)
+summary(model)
+
+# You could also check correlation
+cor(sentiment_rating$sent_score, sentiment_rating$imdb_rating)
+
+# 0.21 r correlation value, slight positive. 
+
+```
+
+Scatterplot looks positive but somewhat logistic in a sense. However a logistic model doesn't make statistical sense.
+
+So, I'd say it's just a mild positive correlation that is very weak in the early data points.
+
+### Sentiment Negation
+
+Identify at least a few negations that change the sentiment values based on the text. Use this to recreate the graphs above (or do this first, then create the graphs).
+
+Claude helped with this problem heavily as I was confused by how to proceed.
+
+```{r}
+# Define negation words
+negation_words <- c("not", "no", "never", "without", "don't", "doesn't", 
+                    "didn't", "won't", "wouldn't", "couldn't", "shouldn't",
+                    "isn't", "aren't", "wasn't", "weren't", "can't")
+
+# Step 1: Create bigrams (pairs of consecutive words)
+office_bigrams <- theoffice |>
+  mutate(episode_id = paste(season, episode, sep = "_")) |>
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) |>
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+negated_sentiments <- office_bigrams |>
+  filter(word1 %in% negation_words) |>
+  # Join sentiment for the second word
+  inner_join(sentiments, by = c("word2" = "word")) |>
+  # Flip the sentiment
+  mutate(sentiment = if_else(sentiment == "positive", "negative", "positive"))
+
+# Step 3: Get regular (non-negated) sentiments
+# First, identify which words are negated (to exclude them)
+negated_words_in_context <- office_bigrams |>
+  filter(word1 %in% negation_words) |>
+  select(season, episode, index, word2) |>
+  mutate(is_negated = TRUE)
+
+negation_effect <- office_bigrams |>
+  filter(word1 %in% negation_words) |>
+  inner_join(sentiments, by = c("word2" = "word")) |>
+  group_by(season, episode) |>
+  summarize(
+    # Original positives that are negated: should subtract 2 (remove +1, add -1)
+    # Original negatives that are negated: should add 2 (remove -1, add +1)
+    negation_adjustment = -2 * sum(sentiment == "positive") + 2 * sum(sentiment == "negative"),
+    .groups = "drop"
+  )
+
+# Step 4: Apply adjustment to original sentiment scores
+episode_sentiment_adjusted <- episode_sentiment |>
+  left_join(negation_effect, by = c("season", "episode")) |>
+  mutate(
+    negation_adjustment = replace_na(negation_adjustment, 0),
+    sent_score_adjusted = sent_score + negation_adjustment
+  )
+
+# RECREATE GRAPHS
+ggplot(episode_sentiment_adjusted, aes(x = episode_num, y = sent_score_adjusted)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(
+    x = "Episode (chronological)",
+    y = "Sentiment Score (Positive - Negative)",
+    title = "Sentiment Over Time in The Office",
+    subtitle = "Note: only 1 episode with a negative sentiment score: S3E20"
+  )
+
+
+# Join with sentiment scores
+sentiment_rating_adjusted <- episode_sentiment_adjusted |>
+  left_join(episode_info, by = c("season", "episode"))
+
+ggplot(sentiment_rating_adjusted, aes(x = sent_score_adjusted, y = imdb_rating)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(
+    x = "Sentiment Score (Positive - Negative)",
+    y = "IMDB Rating",
+    title = "IMDB Rating vs. Sentiment Score",
+    subtitle = "SE and Loess turned on but not necessarily statistically accurate, I just enjoy seeing them."
+  )
+```
+
+```{r}
+#SOME FUN ADJUSTMENTS:
+
+# See which episodes had the biggest negation adjustments
+episode_sentiment_adjusted |>
+  mutate(abs_adjustment = abs(negation_adjustment)) |>
+  arrange(desc(abs_adjustment)) |>
+  select(season, episode, sent_score, negation_adjustment, sent_score_adjusted) |>
+  head(15)
+
+# Most positively adjsuted
+episode_sentiment_adjusted |>
+  arrange(desc(negation_adjustment)) |>
+  select(season, episode, sent_score, negation_adjustment, sent_score_adjusted) |>
+  head(15)
+
+# Side-by-side comparison
+episode_sentiment_adjusted |>
+  select(episode_num, season, episode, sent_score, sent_score_adjusted) |>
+  pivot_longer(cols = c(sent_score, sent_score_adjusted), 
+               names_to = "type", 
+               values_to = "score") |>
+  ggplot(aes(x = episode_num, y = score, color = type)) +
+  geom_line(alpha = 0.7) +
+  labs(
+    x = "Episode (chronological)",
+    y = "Sentiment Score",
+    title = "Original vs. Negation-Adjusted Sentiment",
+    color = "Score Type"
+  )
+
+# How much did negation typically shift scores?
+episode_sentiment_adjusted |>
+  ggplot(aes(x = negation_adjustment)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = 0, lty = 2) +
+  labs(
+    x = "Negation Adjustment",
+    y = "Count",
+    title = "Distribution of Negation Adjustments by Episode"
+  )
+
+# Summary stats
+episode_sentiment_adjusted |>
+  summarize(
+    mean_adjustment = mean(negation_adjustment),
+    median_adjustment = median(negation_adjustment),
+    min_adjustment = min(negation_adjustment),
+    max_adjustment = max(negation_adjustment)
+  )
+
+```
