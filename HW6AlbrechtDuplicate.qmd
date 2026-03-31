@@ -110,11 +110,15 @@ Scatterplot looks positive but somewhat logistic in a sense. However a logistic 
 
 So, I'd say it's just a mild positive correlation that is very weak in the early data points.
 
+**Andrea**: Great idea to run a linear model and check the correlation! This is something I didn't do in my assignment and it definitely adds weight to your argument. Since you mention that a logistic model doesn't make statistical sense, it would help to state what you visually observed, since this would make your statements stronger.
+
 ### Sentiment Negation
 
 Identify at least a few negations that change the sentiment values based on the text. Use this to recreate the graphs above (or do this first, then create the graphs).
 
 Claude helped with this problem heavily as I was confused by how to proceed.
+
+**Andrea**: Great job being transparent about your process! To give the reviewer more context you should consider stating specifically what you were confused about and if there were any issues with Claude that you encountered along the way.
 
 ```{r}
 # Define negation words
@@ -189,6 +193,8 @@ ggplot(sentiment_rating_adjusted, aes(x = sent_score_adjusted, y = imdb_rating))
   )
 ```
 
+**Andrea**: One note for the "IMDB Rating vs. Sentiment Score" graph, it might be worth briefly explaining why SE and Loess aren't statistically appropriate here. That way it turns into more of an insight rather than just a personal preference.
+
 ```{r}
 #SOME FUN ADJUSTMENTS:
 
@@ -241,3 +247,5 @@ episode_sentiment_adjusted |>
   )
 
 ```
+
+**Andrea**: The fun adjustments were very insightful! Another thing you could consider doing is identifying which main characters consistently drive positive or negative sentiment across episodes.
